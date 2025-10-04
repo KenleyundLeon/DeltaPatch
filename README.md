@@ -39,7 +39,7 @@ USE ONLY IF YOUR PLUGIN IS COMPATIBLE!
 </details>
 
 ## Licensing
-This project is licensed under the **Business Source License (BSL)**.  
+This project is licensed under the **Apache License 2.0**.  
 You are allowed to fork this repository and make your own integrations, **but you must give proper credit** to the original author.
 
 ## Credits
