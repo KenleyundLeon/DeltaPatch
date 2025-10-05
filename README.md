@@ -11,13 +11,29 @@ Tired of updating all your plugins manually? Let's automate it!
 <details>
   <summary>Show instructions</summary>
 
-- Download the latest release file called: "DeltaPatch.dll"
-- Copy the file to `.config/SCP Secret Laboratory/LabAPI/plugins/{port}` ← This part is important. DeltaPatch isn't ready for global usage yet.  
-- Reboot the server. After rebooting, a config should appear at `.config/SCP Secret Laboratory/LabAPI/config/{port}/DeltaPatch/config.yml`.  
-- You can customize how often it should check for updates and when the server should reboot (to apply the changes).  
-- That’s it! All plugins that include this badge:  
-  <a href="https://github.com/KenleyundLeon/DeltaPatch"><img src="https://image2url.com/images/1759565889245-ff2e02c2-1f19-4f72-bc06-43a3b77fb4bd.png" width="100" height="60"></a>  
-  will be automatically updated to the latest release version.
+### How to Install
+
+1. Download the latest release file named **`DeltaPatch.dll`**.  
+2. Copy the file to: `.config/SCP Secret Laboratory/LabAPI/config/{port}`.
+
+⚠️ This step is important — DeltaPatch is **not ready for global installation** yet.
+
+3. Restart your server. After the reboot, a configuration file will be created at: `.config/SCP Secret Laboratory/LabAPI/config/{port}/DeltaPatch/config.yml`
+4. You can customize how often DeltaPatch checks for updates and when the server should reboot to apply changes.  
+5. That’s it!  
+All plugins that include this badge:  
+<a href="https://github.com/KenleyundLeon/DeltaPatch"><img src="https://image2url.com/images/1759565889245-ff2e02c2-1f19-4f72-bc06-43a3b77fb4bd.png" width="200" height="60"></a>  
+will be **automatically updated** to their latest release version.
+
+### How to Add Private Repositories
+
+1. Go to [GitHub Personal Access Tokens](https://github.com/settings/personal-access-tokens).  
+2. Generate a **new token**.  
+3. Give the token a name and select the **repositories** you want to access.  
+4. Under permissions, enable **Contents** and **Metadata**.  
+5. Generate the token and **copy** it.  
+6. Paste it into the `github_api_key` field located at: `.config/SCP Secret Laboratory/LabAPI/plugins/{port}/DeltaPatch/config.yml`
+7. Restart your server — your plugins will now **automatically update** to the latest release.
 </details>
   
 ## For Developers
@@ -35,7 +51,7 @@ Tired of updating all your plugins manually? Let's automate it!
 ```html
 <a href="https://github.com/KenleyundLeon/DeltaPatch"><img src="https://image2url.com/images/1759565889245-ff2e02c2-1f19-4f72-bc06-43a3b77fb4bd.png"></a>
 ```
-USE ONLY IF YOUR PLUGIN IS COMPATIBLE!
+⚠️ **USE ONLY IF YOUR PLUGIN IS COMPATIBLE!** ⚠️
 </details>
 
 ## Licensing
