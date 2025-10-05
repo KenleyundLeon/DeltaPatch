@@ -59,6 +59,9 @@ Change the **resource owner** from your personal account to the organization bef
 - Example image:  
   <img src="https://image2url.com/images/1759612903745-72d179ea-0dc5-4a45-93fd-efa463b5f760.png">
 
+### Adding Custom Dependencies
+- It's easy: just put a `dependencies.zip` file in your release containing all required dependencies.
+
 ### Compatibility Badge
 ```html
 <a href="https://github.com/KenleyundLeon/DeltaPatch"><img src="https://image2url.com/images/1759565889245-ff2e02c2-1f19-4f72-bc06-43a3b77fb4bd.png"></a>
