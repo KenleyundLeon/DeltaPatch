@@ -1,4 +1,5 @@
-﻿using LabApi.Features;
+﻿using LabApi.Events.CustomHandlers;
+using LabApi.Features;
 using LabApi.Features.Console;
 using LabApi.Features.Wrappers;
 using LabApi.Loader;
@@ -13,6 +14,7 @@ namespace DeltaPatch;
 
 public class Main : Plugin<Config>
 {
+    public RoundEvents RoundEvents { get; } = new();
     public static Main Instance { get; private set; }
     public override string Name => "DeltaPatch";
 
@@ -20,7 +22,7 @@ public class Main : Plugin<Config>
 
     public override string Author => "Kenley M.";
 
-    public override Version Version => Version.Parse("1.0.0");
+    public override Version Version => Version.Parse("1.1.0");
 
     public override Version RequiredApiVersion { get; } = new(LabApiProperties.CompiledVersion);
     public string githubRepo = "KenleyundLeon/DeltaPatch";
@@ -30,20 +32,28 @@ public class Main : Plugin<Config>
         try
         {
             Instance = this;
+            CustomHandlersManager.RegisterEventsHandler(RoundEvents);
             if (!Config.IsEnabled) return;
             Logger.Info(startmsg);
             Timing.RunCoroutine(CheckUpdatesCoroutine(), Segment.RealtimeUpdate);
         }
         catch (Exception ex)
         {
-            Logger.Error($"Failed to get config directory: {ex.Message}");
+            Logger.Error(ex.Message);
         }
     }
 
     public override void Disable()
     {
-        Instance = null;
-        Logger.Info("DeltaPatch has been Disabled.");
+        try {
+            Instance = null;
+            CustomHandlersManager.UnregisterEventsHandler(RoundEvents);
+            Logger.Info("DeltaPatch has been Disabled.");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex.Message);
+        }
     }
 
     private IEnumerator<float> CheckUpdatesCoroutine()
@@ -58,8 +68,7 @@ public class Main : Plugin<Config>
     }
     private void Update(DirectoryInfo confDir)
     {
-        if (Config.EnableLogging)
-            Logger.Debug("Checking for updates . . .");
+        Utils.LogMsg("info", "Checking for updates . . .");
         var githubRepo = Utils.GetGithubReposWithFile(confDir);
 
         if (githubRepo.Count == 0)
@@ -75,26 +84,16 @@ public class Main : Plugin<Config>
                 var results = await Utils.GetLatestReleaseDateAsync(item.GithubRepo);
                 if (results.publishedAt > File.GetLastWriteTime(item.FilePath))
                 {
-                    if (Config.EnableLogging)
-                        Logger.Warn($"[UPDATE AVAILABLE] A new version ({results.tag}) is available for {item.GithubRepo}.");
+                    Utils.LogMsg("warn", $"[UPDATE AVAILABLE] A new version ({results.tag}) is available for {item.GithubRepo}.");
                     if (Utils.UpdatePlugin(item.FilePath, item.GithubRepo))
                     {
                         if (!Config.RebootOnUpdate) return;
 
                         awaitingReboot = true;
 
-                        if (Round.IsRoundStarted)
-                        {
-                            if (!Config.RebootWhileRound) return;
-                            Broadcast.Singleton.RpcAddElement("Server will be restarted in 5 seconds", 5, Broadcast.BroadcastFlags.Normal);
-                            Timing.CallDelayed(1, Server.Restart);
-                        }
-                        else
-                        {
-                            if (Config.EnableLogging)
-                                Logger.Warn("[REBOOT] Rebooting server to apply updates . . .");
-                            Timing.CallDelayed(1, Server.Restart);
-                        }
+                        if (Round.IsRoundStarted) return;
+
+                        Timing.CallDelayed(1, Server.Restart);
                     }
                     else
                     {
@@ -103,11 +102,8 @@ public class Main : Plugin<Config>
                 }
                 else
                 {
-                    if (Config.EnableLogging)
-                        Logger.Info($"[UP-TO-DATE] The plugin {item.GithubRepo} is up-to-date.");
-
-                    if (awaitingReboot && !Round.IsRoundStarted)
-                        Timing.CallDelayed(1, Server.Restart);
+                    Utils.LogMsg("info", $"[UP-TO-DATE] The plugin {item.GithubRepo} is up-to-date.");
+                    if (awaitingReboot && !Round.IsRoundStarted) Timing.CallDelayed(1, Server.Restart);
                 }
             }
         });
@@ -115,6 +111,6 @@ public class Main : Plugin<Config>
         scanTask.GetAwaiter().GetResult();
     }
     
-    private bool awaitingReboot = false;
+    public bool awaitingReboot = false;
     private const string startmsg = "\n ____  _____ _   _____  _    ____   _  _____ ____ _   _ \r\n|  _ \\| ____| | |_   _|/ \\  |  _ \\ / \\|_   _/ ___| | | |\r\n| | | |  _| | |   | | / _ \\ | |_) / _ \\ | || |   | |_| |\r\n| |_| | |___| |___| |/ ___ \\|  __/ ___ \\| || |___|  _  |\r\n|____/|_____|_____|_/_/   \\_\\_| /_/   \\_\\_| \\____|_| |_| \nMade by Kenley M.";
 }

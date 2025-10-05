@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -19,8 +20,7 @@ public static class Utils
     {
         var client = new HttpClient { Timeout = timeout ?? TimeSpan.FromSeconds(10) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("DeltaPatch-Updater");
-        if (!string.IsNullOrEmpty(Token))
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("token", Token);
+        if (!string.IsNullOrEmpty(Token)) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("token", Token);
         return client;
     }
 
@@ -47,44 +47,89 @@ public static class Utils
             .ToList();
     }
 
-    private static async Task<(string? tag, string? assetId, DateTime? publishedAt)> GetLatestReleaseAsync(string githubRepo)
+    private static async Task<(string? tag, string? dllAssetId, string? zipAssetId, DateTime? publishedAt, string? dllName)> GetLatestReleaseAsync(string githubRepo, string pluginName)
     {
         try
         {
             using var http = CreateHttpClient();
-            if (Main.Instance.Config.EnableLogging)
-                Logger.Info($"[FETCHING] latest release for {githubRepo} . . .");
-            using var resp = await http.GetAsync($"https://api.github.com/repos/{githubRepo}/releases/latest");
+            bool allowPrerelease = Main.Instance.Config.AllowPrerelease;
+
+            string url = allowPrerelease
+                ? $"https://api.github.com/repos/{githubRepo}/releases"
+                : $"https://api.github.com/repos/{githubRepo}/releases/latest";
+
+            LogMsg("info", $"[FETCHING] {(allowPrerelease ? "latest pre-release" : "latest release")} for {githubRepo}...");
+
+            using var resp = await http.GetAsync(url).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
             {
-                if (Main.Instance.Config.EnableLogging)
-                    Logger.Info($"[SKIPPING] repo '{githubRepo}' – Status: {resp.StatusCode}");
+                LogMsg("warn", $"[SKIPPING] repo '{githubRepo}' – Status: {resp.StatusCode}");
                 return default;
             }
 
-            using var doc = await JsonDocument.ParseAsync(await resp.Content.ReadAsStreamAsync());
-            var root = doc.RootElement;
+            using var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            using var doc = await JsonDocument.ParseAsync(stream).ConfigureAwait(false);
 
-            var tag = root.GetPropertyOrDefault("tag_name")?.GetString();
-            DateTime? publishedAt = DateTime.TryParse(root.GetPropertyOrDefault("published_at")?.GetString(), out var date) ? date : (DateTime?)null;
-            var assetId = root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array
-                ? assets.EnumerateArray()
-                    .FirstOrDefault(a => a.GetPropertyOrDefault("name")?.GetString()?.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) == true)
-                    .GetPropertyOrDefault("id")?.GetRawText()
-                : null;
+            JsonElement releaseElement;
+            if (allowPrerelease)
+            {
+                var releases = doc.RootElement.EnumerateArray()
+                    .OrderByDescending(r => DateTime.TryParse(r.GetPropertyOrDefault("published_at")?.GetString(), out var d) ? d : DateTime.MinValue)
+                    .ToList();
 
-            return (tag, assetId, publishedAt);
+                releaseElement = releases.FirstOrDefault(r =>
+                    r.TryGetProperty("prerelease", out var pre) && pre.GetBoolean());
+
+                if (releaseElement.ValueKind == JsonValueKind.Undefined)
+                    releaseElement = releases.FirstOrDefault();
+            }
+            else releaseElement = doc.RootElement;
+
+            if (releaseElement.ValueKind == JsonValueKind.Undefined)
+                return default;
+
+            var tag = releaseElement.GetPropertyOrDefault("tag_name")?.GetString();
+            DateTime? publishedAt = DateTime.TryParse(releaseElement.GetPropertyOrDefault("published_at")?.GetString(), out var date)
+                ? date
+                : (DateTime?)null;
+
+            string? dllAssetId = null;
+            string? zipAssetId = null;
+            string? dllName = null;
+
+            if (releaseElement.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var asset in assets.EnumerateArray())
+                {
+                    string? name = asset.GetPropertyOrDefault("name")?.GetString();
+                    if (string.IsNullOrEmpty(name)) continue;
+
+                    // LogMsg("info", $"[ASSET FOUND] {name}");
+
+                    if (name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && string.Equals(Path.GetFileNameWithoutExtension(name), pluginName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        dllAssetId = asset.GetPropertyOrDefault("id")?.GetRawText();
+                        dllName = name;
+                    }
+                    else if (name.Equals("dependencies.zip", StringComparison.OrdinalIgnoreCase))
+                    {
+                        zipAssetId = asset.GetPropertyOrDefault("id")?.GetRawText();
+                    }
+                }
+            }
+
+            return (tag, dllAssetId, zipAssetId, publishedAt, dllName);
         }
         catch (Exception ex)
         {
-            Logger.Error($"Request failed for {githubRepo}: {ex.Message}");
+            LogMsg("error", $"Request failed for {githubRepo}: {ex.Message}");
             return default;
         }
     }
 
     public static async Task<(string githubRepo, string? tag, DateTime? publishedAt)> GetLatestReleaseDateAsync(string githubRepo)
     {
-        var (tag, _, publishedAt) = await GetLatestReleaseAsync(githubRepo);
+        var (tag, _, _, publishedAt, _) = await GetLatestReleaseAsync(githubRepo, "");
         return (githubRepo, tag, publishedAt);
     }
 
@@ -94,36 +139,106 @@ public static class Utils
         {
             return Task.Run(async () =>
             {
-                var (tag, assetId, _) = await GetLatestReleaseAsync(githubRepo);
-                if (string.IsNullOrEmpty(assetId))
+                string pluginName = Path.GetFileNameWithoutExtension(filePath);
+                var (tag, dllAssetId, zipAssetId, _, dllName) = await GetLatestReleaseAsync(githubRepo, pluginName);
+
+                if (string.IsNullOrEmpty(dllAssetId))
                 {
-                    if (Main.Instance.Config.EnableLogging)
-                        Logger.Warn($"No DLL asset found for {githubRepo}");
+                    LogMsg("warn", $"No matching DLL found for plugin '{pluginName}' in repo {githubRepo}");
                     return false;
                 }
 
-                var targetPath = Path.Combine(Path.GetDirectoryName(filePath)!, Path.GetFileName(filePath));
+                var targetPath = Path.Combine(Path.GetDirectoryName(filePath)!, dllName);
                 Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
 
-                using var http = CreateHttpClient(TimeSpan.FromMinutes(2));
-                http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+                using (var http = CreateHttpClient(TimeSpan.FromMinutes(2)))
+                {
+                    http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
 
-                using var resp = await http.GetAsync($"https://api.github.com/repos/{githubRepo}/releases/assets/{assetId}", HttpCompletionOption.ResponseHeadersRead);
-                resp.EnsureSuccessStatusCode();
+                    LogMsg("info", $"[DOWNLOADING] DLL '{dllName}' for {githubRepo}");
+                    using (var resp = await http.GetAsync($"https://api.github.com/repos/{githubRepo}/releases/assets/{dllAssetId}", HttpCompletionOption.ResponseHeadersRead))
+                    {
+                        resp.EnsureSuccessStatusCode();
+                        using var stream = await resp.Content.ReadAsStreamAsync();
+                        using var file = File.Create(targetPath);
+                        await stream.CopyToAsync(file);
+                    }
 
-                using var stream = await resp.Content.ReadAsStreamAsync();
-                using var file = File.Create(targetPath);
-                await stream.CopyToAsync(file);
-                if (Main.Instance.Config.EnableLogging)
-                    Logger.Info($"[UPDATED] {githubRepo} to version {tag}");
+                    LogMsg("info", $"[UPDATED] {githubRepo} DLL '{dllName}' to version {tag}");
+
+                    if (!string.IsNullOrEmpty(zipAssetId))
+                    {
+                        LogMsg("info", $"[DOWNLOADING] dependencies.zip for {githubRepo}");
+
+                        string pluginDir = Path.GetDirectoryName(filePath)!;
+                        var portFolder = new DirectoryInfo(pluginDir).Name;
+                        var baseDir = new DirectoryInfo(pluginDir).Parent!.Parent!.FullName;
+                        string depDir = Path.Combine(baseDir, "dependencies", portFolder);
+                        Directory.CreateDirectory(depDir);
+                        string zipPath = Path.Combine(depDir, "dependencies.zip");
+                        using (var resp = await http.GetAsync($"https://api.github.com/repos/{githubRepo}/releases/assets/{zipAssetId}", HttpCompletionOption.ResponseHeadersRead))
+                        {
+                            resp.EnsureSuccessStatusCode();
+                            using (var zipStream = await resp.Content.ReadAsStreamAsync())
+                            using (var fs = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                            {
+                                await zipStream.CopyToAsync(fs);
+                            }
+                        }
+
+                        LogMsg("info", $"[EXTRACTING] dependencies.zip for {githubRepo}");
+
+                        using (var fs = new FileStream(zipPath, FileMode.Open))
+                        using (var archive = new ZipArchive(fs, ZipArchiveMode.Read))
+                        {
+                            foreach (var entry in archive.Entries)
+                            {
+                                string destPath = Path.Combine(depDir, entry.FullName);
+                                string? destDir = Path.GetDirectoryName(destPath);
+                                if (!string.IsNullOrEmpty(destDir))
+                                    Directory.CreateDirectory(destDir);
+
+                                entry.ExtractToFile(destPath, true);
+                                LogMsg("info", $"[EXTRACTED] {entry.FullName}");
+                            }
+                        }
+
+                        File.Delete(zipPath);
+                        LogMsg("info", $"[DONE] dependencies.zip processed for {githubRepo}");
+                    }
+                    else
+                    {
+                        LogMsg("info", $"[SKIPPED] No dependencies.zip found for {githubRepo}");
+                    }
+                }
 
                 return true;
             }).GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {
-            Logger.Error($"Update failed: {ex.Message}");
+            LogMsg("error", $"Update failed for {githubRepo}: {ex.Message}");
             return false;
+        }
+    }
+
+    public static void LogMsg(string status, string msg)
+    {
+        if (!Main.Instance.Config.EnableLogging) return;
+        switch (status.ToLower())
+        {
+            case "info":
+                Logger.Info(msg);
+                break;
+            case "warn":
+                Logger.Warn(msg);
+                break;
+            case "error":
+                Logger.Error(msg);
+                break;
+            default:
+                Logger.Info(msg);
+                break;
         }
     }
 
