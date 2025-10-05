@@ -35,6 +35,13 @@ will be **automatically updated** to their latest release version.
 6. Paste it into the `github_api_key` field located at: `.config/SCP Secret Laboratory/LabAPI/plugins/{port}/DeltaPatch/config.yml`
 7. Restart your server — your plugins will now **automatically update** to the latest release.
 </details>
+
+## Compatible Plugins
+<details>
+  <summary>Show compatible plugins</summary>
+
+- [Wireless-Keycards](https://github.com/KenleyundLeon/Wireless-Keycards)
+</details>
   
 ## For Developers
 <details>
@@ -43,7 +50,9 @@ will be **automatically updated** to their latest release version.
 ### Adding Compatibility
 - Adding DeltaPatch compatibility is easy.  
 - Create a new public string value in your main file where the `Plugin` interface is used:  
-  public string githubRepo = "CHANGE THIS TO YOUR GITHUB REPOSITORY";  
+  ```cs
+  public string githubRepo = "CHANGE THIS TO YOUR GITHUB REPOSITORY"; // example: KenleyundLeon/DeltaPatch
+  ```
 - Example image:  
   <img src="https://image2url.com/images/1759612903745-72d179ea-0dc5-4a45-93fd-efa463b5f760.png">
 
