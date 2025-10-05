@@ -34,6 +34,9 @@ will be **automatically updated** to their latest release version.
 5. Generate the token and **copy** it.  
 6. Paste it into the `github_api_key` field located at: `.config/SCP Secret Laboratory/LabAPI/plugins/{port}/DeltaPatch/config.yml`
 7. Restart your server — your plugins will now **automatically update** to the latest release.
+
+### What if you’re using an organization?
+Change the **resource owner** from your personal account to the organization before generating the token.
 </details>
 
 ## Compatible Plugins
