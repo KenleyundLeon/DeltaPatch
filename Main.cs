@@ -22,7 +22,7 @@ public class Main : Plugin<Config>
 
     public override string Author => "Kenley M.";
 
-    public override Version Version => Version.Parse("1.1.0");
+    public override Version Version => Version.Parse("1.1.1");
 
     public override Version RequiredApiVersion { get; } = new(LabApiProperties.CompiledVersion);
     public override bool IsTransparent => true;
