@@ -1,4 +1,7 @@
 ﻿using LabApi.Features.Console;
+using LabApi.Features.Wrappers;
+using LabApi.Loader;
+using LabApi.Loader.Features.Plugins;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -26,25 +29,56 @@ public static class Utils
 
     public static List<(string GithubRepo, string FilePath)> GetGithubReposWithFile(DirectoryInfo confDir)
     {
-        string pluginPath = Path.Combine(confDir.Parent!.Parent!.Parent!.FullName, "plugins", confDir.Parent.Name);
+        List<(string GithubRepo, string FilePath)> pluginRepos = [];
 
-        return Directory.GetFiles(pluginPath, "*.dll")
-            .SelectMany(file =>
+        var prefix = "https://github.com/";
+
+        foreach (var pl in PluginLoader.Plugins)
+        {
+            var metadataAttributes = pl.Value.GetCustomAttributes<AssemblyMetadataAttribute>();
+
+            foreach (var attr in metadataAttributes)
             {
-                var asm = Assembly.LoadFrom(file);
-                return asm.GetTypes()
-                    .Where(t => t.IsClass && !t.IsAbstract && t.BaseType?.Name.StartsWith("Plugin") == true)
-                    .Select(t => (Type: t, File: file));
-            })
-            .Select(info =>
+                if (attr.Key != "RepositoryUrl") continue;
+
+                if (pl.Key.FilePath != null && attr.Value != null)
+                {
+                    var pluginFile = attr.Value.StartsWith(prefix)
+                        ? attr.Value.Substring(prefix.Length)
+                        : attr.Value;
+
+                    pluginRepos.Add((pluginFile, pl.Key.FilePath));
+                    Logger.Debug(pluginFile);
+                }
+            }
+        }
+
+        if (!Server.Host?.IsDestroyed ?? false)
+        {
+            foreach (Plugin plugin in PluginLoader.EnabledPlugins)
             {
-                var instance = info.Type.GetConstructor(Type.EmptyTypes)?.Invoke(null);
-                var repo = info.Type.GetField("githubRepo", BindingFlags.Public | BindingFlags.Instance)?.GetValue(instance)?.ToString();
-                return string.IsNullOrEmpty(repo) ? default : (repo, info.File);
-            })
-            .Where(r => r.repo != null)
-            .Cast<(string GithubRepo, string FilePath)>()
-            .ToList();
+                var repo = plugin.GetType()
+                    .GetField("githubRepo", BindingFlags.Public | BindingFlags.Instance)?
+                    .GetValue(plugin)?
+                    .ToString();
+
+                var pluginFile = plugin.GetType()
+                    .GetProperty("FilePath", BindingFlags.Public | BindingFlags.Instance)?
+                    .GetValue(plugin)?
+                    .ToString();
+
+                if (!string.IsNullOrEmpty(repo) && !string.IsNullOrEmpty(pluginFile))
+                {
+                    var cleanedRepo = repo.StartsWith(prefix)
+                        ? repo.Substring(prefix.Length)
+                        : repo;
+
+                    pluginRepos.Add((cleanedRepo, pluginFile));
+                }
+            }
+        }
+
+        return pluginRepos.Any() ? pluginRepos : [];
     }
 
     private static async Task<(string? tag, string? dllAssetId, string? zipAssetId, DateTime? publishedAt, string? dllName)> GetLatestReleaseAsync(string githubRepo, string pluginName)
@@ -115,6 +149,7 @@ public static class Utils
                     {
                         zipAssetId = asset.GetPropertyOrDefault("id")?.GetRawText();
                     }
+                    else continue;
                 }
             }
 
@@ -176,6 +211,7 @@ public static class Utils
                         string depDir = Path.Combine(baseDir, "dependencies", portFolder);
                         Directory.CreateDirectory(depDir);
                         string zipPath = Path.Combine(depDir, "dependencies.zip");
+                        Logger.Error($"{filePath} | {pluginDir} | {portFolder} | {baseDir} | {depDir} | {zipPath}");
                         using (var resp = await http.GetAsync($"https://api.github.com/repos/{githubRepo}/releases/assets/{zipAssetId}", HttpCompletionOption.ResponseHeadersRead))
                         {
                             resp.EnsureSuccessStatusCode();

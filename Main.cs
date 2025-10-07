@@ -25,6 +25,8 @@ public class Main : Plugin<Config>
     public override Version Version => Version.Parse("1.1.0");
 
     public override Version RequiredApiVersion { get; } = new(LabApiProperties.CompiledVersion);
+    public override bool IsTransparent => true;
+
     public string githubRepo = "KenleyundLeon/DeltaPatch";
     public override void Enable()
     {
@@ -58,11 +60,10 @@ public class Main : Plugin<Config>
 
     private IEnumerator<float> CheckUpdatesCoroutine()
     {
-        var confDir = this.GetConfigDirectory();
         while (true)
         {
             if (awaitingReboot) Logger.Warn("Awaiting reboot to apply updates...");
-            Update(confDir);
+            Update(this.GetConfigDirectory());
             yield return Timing.WaitForSeconds(Config.UpdateTimer);
         }
     }
@@ -70,7 +71,6 @@ public class Main : Plugin<Config>
     {
         Utils.LogMsg("info", "Checking for updates . . .");
         var githubRepo = Utils.GetGithubReposWithFile(confDir);
-
         if (githubRepo.Count == 0)
         {
             Logger.Warn("No compatible plugins found.");
@@ -84,7 +84,14 @@ public class Main : Plugin<Config>
                 var results = await Utils.GetLatestReleaseDateAsync(item.GithubRepo);
                 if (results.publishedAt > File.GetLastWriteTime(item.FilePath))
                 {
-                    Utils.LogMsg("warn", $"[UPDATE AVAILABLE] A new version ({results.tag}) is available for {item.GithubRepo}.");
+                    var path = item.FilePath.Contains("global")
+                        ? "global"
+                        : (item.FilePath.Contains(Server.Port.ToString())
+                            ? Server.Port.ToString()
+                            : "unknown");
+
+                    Utils.LogMsg("warn", $"[UPDATE AVAILABLE] In {path} there is a new version ({results.tag}) available for {item.GithubRepo}.");
+
                     if (Utils.UpdatePlugin(item.FilePath, item.GithubRepo))
                     {
                         if (!Config.RebootOnUpdate) return;
