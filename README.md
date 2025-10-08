@@ -14,10 +14,7 @@ Tired of updating all your plugins manually? Let's automate it!
 ### How to Install
 
 1. Download the latest release file named **`DeltaPatch.dll`**.  
-2. Copy the file to: `.config/SCP Secret Laboratory/LabAPI/config/{port}`.
-
-⚠️ This step is important — DeltaPatch is **not ready for global installation** yet.
-
+2. Copy the file to: `.config/SCP Secret Laboratory/LabAPI/plugins/{port}` or `.config/SCP Secret Laboratory/LabAPI/plugins/global`.
 3. Restart your server. After the reboot, a configuration file will be created at: `.config/SCP Secret Laboratory/LabAPI/config/{port}/DeltaPatch/config.yml`
 4. You can customize how often DeltaPatch checks for updates and when the server should reboot to apply changes.  
 5. That’s it!  
@@ -58,6 +55,12 @@ Change the **resource owner** from your personal account to the organization bef
   ```
 - Example image:  
   <img src="https://image2url.com/images/1759612903745-72d179ea-0dc5-4a45-93fd-efa463b5f760.png">
+
+- You can now add an AssemblyMetadata attribute in your AssemblyInfo.cs and recompile your plugin.
+- Your metadata should follow this format: `[assembly: AssemblyMetadata("RepositoryUrl", "https://github.com/YOUR-GITHUB-HERE")]`
+- Example image:
+  <img src="https://image2url.com/images/1759861785442-8de033e8-3476-4d5d-9790-f2f03c041793.png">
+
 
 ### Adding Custom Dependencies
 - It's easy: just put a `dependencies.zip` file in your release containing all required dependencies.
