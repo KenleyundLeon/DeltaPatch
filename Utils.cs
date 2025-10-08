@@ -35,21 +35,42 @@ public static class Utils
 
         foreach (var pl in PluginLoader.Plugins)
         {
-            var metadataAttributes = pl.Value.GetCustomAttributes<AssemblyMetadataAttribute>();
+            if (pl.Key.FilePath == null)
+                continue;
 
-            foreach (var attr in metadataAttributes)
+            string? repoUrl = null;
+
+            foreach (var attr in pl.Value.GetCustomAttributes<AssemblyMetadataAttribute>())
             {
-                if (attr.Key != "RepositoryUrl") continue;
-
-                if (pl.Key.FilePath != null && attr.Value != null)
+                if (attr.Key == "RepositoryUrl" && !string.IsNullOrEmpty(attr.Value))
                 {
-                    var pluginFile = attr.Value.StartsWith(prefix)
-                        ? attr.Value.Substring(prefix.Length)
-                        : attr.Value;
-
-                    pluginRepos.Add((pluginFile, pl.Key.FilePath));
-                    Logger.Debug(pluginFile);
+                    repoUrl = attr.Value;
+                    break;
                 }
+            }
+
+            if (repoUrl == null)
+            {
+                foreach (var attr in pl.Value.GetCustomAttributes<AssemblyCompanyAttribute>())
+                {
+                    var url = attr.Company;
+                    if (!string.IsNullOrEmpty(url) &&
+                        url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        repoUrl = url;
+                        break;
+                    }
+                }
+            }
+
+            if (repoUrl != null)
+            {
+                var repoPath = repoUrl.StartsWith(prefix)
+                    ? repoUrl.Substring(prefix.Length)
+                    : repoUrl;
+
+                pluginRepos.Add((repoPath, pl.Key.FilePath));
+                Logger.Debug(repoPath);
             }
         }
 
