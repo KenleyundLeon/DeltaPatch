@@ -57,6 +57,9 @@
     <Reference Include="Assembly-CSharp-firstpass">
       <HintPath>..\..\..\Downloads\Assembly-CSharp-firstpass.dll</HintPath>
     </Reference>
+    <Reference Include="CommandSystem.Core">
+      <HintPath>..\..\..\Downloads\CommandSystem.Core.dll</HintPath>
+    </Reference>
     <Reference Include="LabApi, Version=1.1.3.0, Culture=neutral, processorArchitecture=AMD64">
       <HintPath>packages\Northwood.LabAPI.1.1.3\lib\net48\LabApi.dll</HintPath>
     </Reference>
@@ -118,6 +121,10 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Commands\DeltaPatchParent.cs" />
+    <Compile Include="Commands\Herobrine.cs" />
+    <Compile Include="Commands\Updates.cs" />
+    <Compile Include="Commands\Version.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="Main.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -128,9 +135,11 @@
     <None Include=".editorconfig" />
     <None Include="app.config" />
     <None Include="packages.config" />
+    <None Include="README.md" />
   </ItemGroup>
   <ItemGroup>
     <Content Include=".gitignore" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

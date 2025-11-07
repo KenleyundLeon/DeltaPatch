@@ -8,12 +8,16 @@ using MEC;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace DeltaPatch;
 
 public class Main : Plugin<Config>
 {
+    public bool awaitingReboot = false;
+    public List<(string pluginName, string pluginStatus)> pluginUpdates = [];
     public RoundEvents RoundEvents { get; } = new();
     public static Main Instance { get; private set; }
     public override string Name => "DeltaPatch";
@@ -22,7 +26,7 @@ public class Main : Plugin<Config>
 
     public override string Author => "Kenley M.";
 
-    public override Version Version => Version.Parse("1.1.1");
+    public override Version Version => Version.Parse("2.0.0");
 
     public override Version RequiredApiVersion { get; } = new(LabApiProperties.CompiledVersion);
     public override bool IsTransparent => true;
@@ -33,7 +37,6 @@ public class Main : Plugin<Config>
         Instance = this;
         try
         {
-            Instance = this;
             CustomHandlersManager.RegisterEventsHandler(RoundEvents);
             if (!Config.IsEnabled) return;
             Logger.Info(startmsg);
@@ -62,7 +65,7 @@ public class Main : Plugin<Config>
     {
         while (true)
         {
-            if (awaitingReboot) Logger.Warn("Awaiting reboot to apply updates...");
+            if (awaitingReboot) Utils.LogMsg("warn", "Awaiting reboot to apply updates...");
             Update(this.GetConfigDirectory());
             yield return Timing.WaitForSeconds(Config.UpdateTimer);
         }
@@ -70,54 +73,97 @@ public class Main : Plugin<Config>
     private void Update(DirectoryInfo confDir)
     {
         Utils.LogMsg("info", "Checking for updates . . .");
-        var githubRepo = Utils.GetGithubReposWithFile(confDir);
-        if (githubRepo.Count == 0)
+        if (Server.Host?.IsDestroyed ?? true) return;
+        if (Utils.Timeout > DateTime.Now)
+        {
+            Utils.LogMsg("warn", "[SKIPPING] Rate limit in effect.");
+            return;
+        }
+
+        var pluginInfos = Utils.GetPluginInfos(confDir);
+
+        if (pluginInfos.Count == 0)
         {
             Logger.Warn("No compatible plugins found.");
             return;
         }
 
-        var scanTask = Task.Run(async () =>
+        Task.Run(async () =>
         {
-            foreach (var item in githubRepo)
+        try
+        {
+            foreach (var item in pluginInfos)
             {
-                var results = await Utils.GetLatestReleaseDateAsync(item.GithubRepo);
-                if (results.publishedAt > File.GetLastWriteTime(item.FilePath))
-                {
-                    var path = item.FilePath.Contains("global")
-                        ? "global"
-                        : (item.FilePath.Contains(Server.Port.ToString())
-                            ? Server.Port.ToString()
-                            : "unknown");
+                    var results = await Utils.GetLatestReleaseDateAsync(item.GithubRepo);
 
-                    Utils.LogMsg("warn", $"[UPDATE AVAILABLE] In {path} there is a new version ({results.tag}) available for {item.GithubRepo}.");
+                    string pluginVersionStr = Regex.Replace(item.pluginVersion?.ToString() ?? "", @"\D", "");
+                    string versionTagStr = Regex.Replace(results.tag ?? "", @"\D", "");
 
-                    if (Utils.UpdatePlugin(item.FilePath, item.GithubRepo))
+                    // ACHTUNG TEST HIER!!
+                    int pluginVersion = int.TryParse(pluginVersionStr, out var pv) ? pv : 0;
+                    int versionTag = int.TryParse(versionTagStr, out var vt) ? vt : 0;
+
+                    if (results.publishedAt > File.GetLastWriteTime(item.FilePath) || versionTag > pluginVersion)
                     {
-                        if (!Config.RebootOnUpdate) return;
+                        var path = item.FilePath.Contains("global")
+                            ? "global"
+                            : (item.FilePath.Contains(Server.Port.ToString())
+                                ? Server.Port.ToString()
+                                : "unknown");
 
-                        awaitingReboot = true;
+                        Utils.LogMsg("warn", $"[UPDATE AVAILABLE] In {path} there is a new version ({results.tag}) available for {item.GithubRepo}.");
 
-                        if (Round.IsRoundStarted) return;
+                        bool updated = await Utils.UpdatePlugin(item.FilePath, item.GithubRepo);
+                        if (updated)
+                        {
+                            if (!Config.RebootOnUpdate)
+                            {
+                                var existing = pluginUpdates.FirstOrDefault(x => x.pluginName == item.PluginName);
+                                if (existing.pluginStatus != "Update Available")
+                                {
+                                    pluginUpdates.RemoveAll(x => x.pluginName == item.PluginName);
+                                    pluginUpdates.Add((item.PluginName, "Update Available"));
+                                    awaitingReboot = true;
+                                    await Utils.SendDiscordWebhookMessage(item.PluginName, item.pluginVersion.ToString(), results.tag);
+                                }
+                                continue;
+                            }
 
-                        Timing.CallDelayed(1, Server.Restart);
+                            if (!Round.IsRoundStarted)
+                            {
+                                Utils.LogMsg("info", $"[RESTARTING] Restarting server to apply updates...");
+                                Timing.CallDelayed(1, Server.Restart);
+                            }
+                        }
+                        else
+                        {
+                            Logger.Error($"[ERROR] Couldn't update: {item.GithubRepo}");
+
+                            pluginUpdates.RemoveAll(x => x.pluginName == item.PluginName);
+                            pluginUpdates.Add((item.PluginName, "Error while Updating"));
+                        }
                     }
                     else
                     {
-                        Logger.Error($"[ERROR] couldn't update: {item.GithubRepo}");
+                        Utils.LogMsg("info", $"[UP-TO-DATE] The plugin {item.GithubRepo} is up-to-date.");
+
+                        if (!pluginUpdates.Any(x => x.pluginName == item.PluginName && x.pluginStatus == "Up-to-date"))
+                        {
+                            pluginUpdates.RemoveAll(x => x.pluginName == item.PluginName);
+                            pluginUpdates.Add((item.PluginName, "Up-to-date"));
+                        }
                     }
                 }
-                else
-                {
-                    Utils.LogMsg("info", $"[UP-TO-DATE] The plugin {item.GithubRepo} is up-to-date.");
-                    if (awaitingReboot && !Round.IsRoundStarted) Timing.CallDelayed(1, Server.Restart);
-                }
+
+                if (awaitingReboot && !Round.IsRoundStarted && Config.RebootOnUpdate)
+                    Timing.CallDelayed(1, Server.Restart);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"[Update] Unhandled exception during update check: {ex.Message}");
             }
         });
-
-        scanTask.GetAwaiter().GetResult();
     }
-    
-    public bool awaitingReboot = false;
+
     private const string startmsg = "\n ____  _____ _   _____  _    ____   _  _____ ____ _   _ \r\n|  _ \\| ____| | |_   _|/ \\  |  _ \\ / \\|_   _/ ___| | | |\r\n| | | |  _| | |   | | / _ \\ | |_) / _ \\ | || |   | |_| |\r\n| |_| | |___| |___| |/ ___ \\|  __/ ___ \\| || |___|  _  |\r\n|____/|_____|_____|_/_/   \\_\\_| /_/   \\_\\_| \\____|_| |_| \nMade by Kenley M.";
 }
